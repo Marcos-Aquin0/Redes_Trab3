@@ -129,9 +129,6 @@ int main(int argc, char **argv) {
     my_udp_addr.sin_addr.s_addr = INADDR_ANY; // Qualquer IP da máquina
     my_udp_addr.sin_port = htons(my_tcp_port + 1); // A Mágica do Incremental
 
-    int opt = 1;
-    setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    
     if (bind(udp_sock, (struct sockaddr*)&my_udp_addr, sizeof(my_udp_addr)) < 0) {
         perror("Erro ao fazer bind na porta incremental UDP");
     }
