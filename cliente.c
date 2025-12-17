@@ -6,9 +6,29 @@
 #include <strings.h>
 #include <unistd.h>
 #include <string.h>
-#include <sys/select.h> 
+#include <sys/select.h>
+#include <pthread.h> 
 
 #define MAX_MSG 256
+
+void *listen_udp(void *arg) {
+        int sock = *(int*)arg;
+        char buffer[MAX_MSG];
+        struct sockaddr_in sender;
+        socklen_t len = sizeof(sender);
+    
+        printf("[UDP-Thread] Ouvindo porta UDP...\n");
+        while(1) {
+            int n = recvfrom(sock, buffer, MAX_MSG, 0, (struct sockaddr*)&sender, &len);
+            if (n > 0) {
+                buffer[n] = '\0';
+                // Se receber isso, O HOLE PUNCHING FUNCIONOU!
+                printf("\n\n>>> SUCESSO! MENSAGEM UDP RECEBIDA DE (%s:%d): %s\n", 
+                       inet_ntoa(sender.sin_addr), ntohs(sender.sin_port), buffer);
+            }
+        }
+        return NULL;
+    }
 
 int main(int argc, char **argv) {
     if (argc != 3) {
@@ -16,7 +36,7 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    // socket
+    // socket tcp
     int cfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (cfd == -1) {
         perror("socket()");
@@ -39,6 +59,11 @@ int main(int argc, char **argv) {
     fd_set readfds;
     char msg[MAX_MSG], resp[MAX_MSG];
     int max_fd = cfd; // O maior descritor é o socket (stdin é 0)
+
+    // Variáveis para guardar os dados do PAR
+    char peer_ip[32];
+    int peer_tcp_port = 0;
+    int tem_dados = 0;
 
     while(1) {
         FD_ZERO(&readfds);
@@ -75,15 +100,48 @@ int main(int argc, char **argv) {
                 printf("Servidor desconectou ou erro.\n");
                 break;
             }
-        
+            sscanf(resp, "%s %d", peer_ip, &peer_tcp_port);
+            tem_dados = 1;
             printf("\n>>> DADOS RECEBIDOS DO SERVIDOR: %s\n", resp);
             
             break; 
         }
     }
 
-    while(1) sleep(10);
+    if (!tem_dados) return 0;
+
+    int peer_udp_port = peer_tcp_port + 1;
+
+    printf("Par TCP (NAT): %s:%d\n", peer_ip, peer_tcp_port);
+    printf("Alvo UDP (NAT): %s:%d (Tentativa Incremental +1)\n", peer_ip, peer_udp_port);
+
+    // Cria Socket UDP
+    int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+
+    struct sockaddr_in peer_addr;
+    peer_addr.sin_family = AF_INET;
+    peer_addr.sin_port = htons(peer_udp_port);
+    peer_addr.sin_addr.s_addr = inet_addr(peer_ip);
+
+    pthread_t tid;
+    pthread_create(&tid, NULL, listen_udp, &udp_sock);
+
+    char udp_msg[] = "OLA! Furei o NAT!";
     
+    printf("Enviando pacotes UDP para furar o NAT...\n");
+    for(int i=0; i<20; i++) {
+        sendto(udp_sock, udp_msg, strlen(udp_msg), 0, 
+               (struct sockaddr*)&peer_addr, sizeof(peer_addr));
+        
+        printf("Pacote UDP %d enviado para %s:%d\n", i+1, peer_ip, peer_udp_port);
+        sleep(1); // Espera 1 seg entre tentativas
+    }
+
+    printf("Fim do envio. Aguardando respostas...\n");
+    pthread_join(tid, NULL);
+
+    while(1) sleep(10);
+    close(udp_sock);
     close(cfd);
     return 0;
 }
