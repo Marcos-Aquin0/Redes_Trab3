@@ -48,12 +48,18 @@ int main(int argc, char **argv) {
     saddr.sin_family = AF_INET;
     saddr.sin_addr.s_addr = inet_addr(argv[1]);
 
+    struct sockaddr_in my_local_addr;
+    socklen_t len_local = sizeof(my_local_addr);
+
     // connect
     if (connect(cfd, (struct sockaddr*) &saddr, sizeof(struct sockaddr_in)) == -1) {
         perror("connect()");
         return -1;
     }
 
+    getsockname(cfd, (struct sockaddr*)&my_local_addr, &len_local);
+    int my_tcp_port = ntohs(my_local_addr.sin_port);
+    printf("Minha porta TCP Local: %d\n", my_tcp_port);
     printf("Conectado! Pressione ENTER para solicitar conexão ao par OU aguarde...\n");
 
     fd_set readfds;
@@ -118,15 +124,26 @@ int main(int argc, char **argv) {
     // Cria Socket UDP
     int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
 
+    struct sockaddr_in my_udp_addr;
+    my_udp_addr.sin_family = AF_INET;
+    my_udp_addr.sin_addr.s_addr = INADDR_ANY; // Qualquer IP da máquina
+    my_udp_addr.sin_port = htons(my_tcp_port + 1); // A Mágica do Incremental
+
+    if (bind(udp_sock, (struct sockaddr*)&my_udp_addr, sizeof(my_udp_addr)) < 0) {
+        perror("Erro ao fazer bind na porta incremental UDP");
+        // Em caso de erro, pode deixar sem bind (aleatório) ou tentar +2
+    }
+
     struct sockaddr_in peer_addr;
     peer_addr.sin_family = AF_INET;
     peer_addr.sin_port = htons(peer_udp_port);
     peer_addr.sin_addr.s_addr = inet_addr(peer_ip);
 
+    // Inicia thread para ouvir (para não bloquear o envio)
     pthread_t tid;
     pthread_create(&tid, NULL, listen_udp, &udp_sock);
 
-    char udp_msg[] = "OLA! Furei o NAT!";
+    char udp_msg[] = "";
     
     printf("Enviando pacotes UDP para furar o NAT...\n");
     for(int i=0; i<20; i++) {
