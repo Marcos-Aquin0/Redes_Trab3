@@ -124,6 +124,11 @@ int main(int argc, char **argv) {
     // Cria Socket UDP
     int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
 
+    int yes = 1;
+    if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
+        perror("setsockopt");
+    }
+    
     struct sockaddr_in my_udp_addr;
     my_udp_addr.sin_family = AF_INET;
     my_udp_addr.sin_addr.s_addr = INADDR_ANY; // Qualquer IP da máquina
