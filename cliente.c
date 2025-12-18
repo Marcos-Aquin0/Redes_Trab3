@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
     if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
         perror("setsockopt");
     }
-    
+
     struct sockaddr_in my_udp_addr;
     my_udp_addr.sin_family = AF_INET;
     my_udp_addr.sin_addr.s_addr = INADDR_ANY; // Qualquer IP da máquina
@@ -147,7 +147,7 @@ int main(int argc, char **argv) {
     pthread_t tid;
     pthread_create(&tid, NULL, listen_udp, &udp_sock);
 
-    char udp_msg[] = "";
+    char udp_msg[] = "PUNCHING";
     
     printf("Enviando pacotes UDP para furar o NAT...\n");
     for(int i=0; i<20; i++) {
