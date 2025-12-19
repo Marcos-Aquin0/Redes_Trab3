@@ -11,6 +11,11 @@
 
 #define MAX_MSG 256
 
+volatile int pacote_recebido = 0;  
+volatile int ack_recebido = 0;     
+int udp_sock_global;               
+struct sockaddr_in peer_addr_global; 
+
 void *listen_udp(void *arg) {
         int sock = *(int*)arg;
         char buffer[MAX_MSG];
@@ -22,9 +27,23 @@ void *listen_udp(void *arg) {
             int n = recvfrom(sock, buffer, MAX_MSG, 0, (struct sockaddr*)&sender, &len);
             if (n > 0) {
                 buffer[n] = '\0';
-                // Se receber isso, O HOLE PUNCHING FUNCIONOU!
-                printf("\n\n>>> SUCESSO! MENSAGEM UDP RECEBIDA DE (%s:%d): %s\n", 
+                printf("\n>>> MENSAGEM UDP RECEBIDA DE (%s:%d): %s\n", 
                        inet_ntoa(sender.sin_addr), ntohs(sender.sin_port), buffer);
+                
+                // Se recebeu PUNCHING, marca que recebeu e envia ACK de volta
+                if (strcmp(buffer, "PUNCHING") == 0) {
+                    pacote_recebido = 1;
+                    // Envia ACK para confirmar que recebeu
+                    char ack[] = "ACK";
+                    sendto(sock, ack, strlen(ack), 0, 
+                           (struct sockaddr*)&peer_addr_global, sizeof(peer_addr_global));
+                    printf(">>> Enviado ACK de confirma\u00e7\u00e3o!\n");
+                }
+                // Se recebeu ACK, o outro confirmou que recebeu nosso pacote
+                else if (strcmp(buffer, "ACK") == 0) {
+                    ack_recebido = 1;
+                    printf(">>> ACK recebido! O outro host confirmou recebimento.\n");
+                }
             }
         }
         return NULL;
@@ -64,17 +83,16 @@ int main(int argc, char **argv) {
 
     fd_set readfds;
     char msg[MAX_MSG], resp[MAX_MSG];
-    int max_fd = cfd; // O maior descritor é o socket (stdin é 0)
-
-    // Variáveis para guardar os dados do PAR
+    int max_fd = cfd;
     char peer_ip[32];
     int peer_tcp_port = 0;
     int tem_dados = 0;
+    char meu_tipo = ' '; 
 
     while(1) {
         FD_ZERO(&readfds);
-        FD_SET(0, &readfds);   // Adiciona STDIN (Teclado)
-        FD_SET(cfd, &readfds); // Adiciona Socket (Servidor)
+        FD_SET(0, &readfds);   
+        FD_SET(cfd, &readfds); 
 
         // select bloqueia até que algo aconteça no teclado OU no socket
         int activity = select(max_fd + 1, &readfds, NULL, NULL, NULL);
@@ -106,9 +124,10 @@ int main(int argc, char **argv) {
                 printf("Servidor desconectou ou erro.\n");
                 break;
             }
-            sscanf(resp, "%s %d", peer_ip, &peer_tcp_port);
+            sscanf(resp, "%s %d %c", peer_ip, &peer_tcp_port, &meu_tipo);
             tem_dados = 1;
             printf("\n>>> DADOS RECEBIDOS DO SERVIDOR: %s\n", resp);
+            printf(">>> EU SOU O CLIENTE: %c\n", meu_tipo);
             
             break; 
         }
@@ -121,7 +140,6 @@ int main(int argc, char **argv) {
     printf("Par TCP (NAT): %s:%d\n", peer_ip, peer_tcp_port);
     printf("Alvo UDP (NAT): %s:%d (Tentativa Incremental +1)\n", peer_ip, peer_udp_port);
 
-    // Cria Socket UDP
     int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
 
     int yes = 1;
@@ -131,8 +149,8 @@ int main(int argc, char **argv) {
 
     struct sockaddr_in my_udp_addr;
     my_udp_addr.sin_family = AF_INET;
-    my_udp_addr.sin_addr.s_addr = INADDR_ANY; // Qualquer IP da máquina
-    my_udp_addr.sin_port = htons(my_tcp_port + 1); // A Mágica do Incremental
+    my_udp_addr.sin_addr.s_addr = INADDR_ANY; 
+    my_udp_addr.sin_port = htons(my_tcp_port + 1); 
 
     if (bind(udp_sock, (struct sockaddr*)&my_udp_addr, sizeof(my_udp_addr)) < 0) {
         perror("Erro ao fazer bind na porta incremental UDP");
@@ -142,8 +160,10 @@ int main(int argc, char **argv) {
     peer_addr.sin_family = AF_INET;
     peer_addr.sin_port = htons(peer_udp_port);
     peer_addr.sin_addr.s_addr = inet_addr(peer_ip);
+    
+    peer_addr_global = peer_addr;
+    udp_sock_global = udp_sock;
 
-    // Inicia thread para ouvir (para não bloquear o envio)
     pthread_t tid;
     pthread_create(&tid, NULL, listen_udp, &udp_sock);
 
@@ -155,13 +175,39 @@ int main(int argc, char **argv) {
                (struct sockaddr*)&peer_addr, sizeof(peer_addr));
         
         printf("Pacote UDP %d enviado para %s:%d\n", i+1, peer_ip, peer_udp_port);
+        
+        if (pacote_recebido && ack_recebido) {
+            printf("\n>>> HOLE PUNCHING COMPLETO! Ambos os lados confirmaram.\n");
+            break;
+        }
+        
         sleep(1); // Espera 1 seg entre tentativas
     }
 
-    printf("Fim do envio. Aguardando respostas...\n");
-    pthread_join(tid, NULL);
+    printf("Fim do envio inicial. Aguardando respostas...\n");
+    
+    sleep(3);
 
+    if (meu_tipo == 'A') {
+        printf("\n[CLIENTE A] Enviando pacote de dados extra para B...\n");
+        char dados_extra[] = "DADOS_DO_CLIENTE_A";
+        
+        for(int i = 0; i < 5; i++) {
+            sendto(udp_sock, dados_extra, strlen(dados_extra), 0, 
+                   (struct sockaddr*)&peer_addr, sizeof(peer_addr));
+            printf("[A] Pacote extra %d enviado para %s:%d\n", i+1, peer_ip, peer_udp_port);
+            sleep(1);
+        }
+        printf("[A] Envio de dados extra concluído.\n");
+    } else if (meu_tipo == 'B') {
+        printf("\n[CLIENTE B] Aguardando pacote de dados do cliente A...\n");
+    }
+
+    printf("Aguardando mensagens...\n");
+    
     while(1) sleep(10);
+    
+    pthread_join(tid, NULL);
     close(udp_sock);
     close(cfd);
     return 0;

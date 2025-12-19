@@ -66,11 +66,15 @@ void *handle_client(void *args) {
 		char resposta[256];
     	bzero(resposta, 256);
 
-		sprintf(resposta, "%s %d", 
-            inet_ntoa(tclients[peer_index].caddr.sin_addr),
-            ntohs(tclients[peer_index].caddr.sin_port));
+		// my_index 0 = cliente A, my_index 1 = cliente B
+		char tipo = (my_index == 0) ? 'A' : 'B';
 
-    	printf("Enviando para cliente %d os dados do par: %s\n", my_index, resposta);
+		sprintf(resposta, "%s %d %c", 
+            inet_ntoa(tclients[peer_index].caddr.sin_addr),
+            ntohs(tclients[peer_index].caddr.sin_port),
+            tipo);
+
+    	printf("Enviando para cliente %d (tipo %c) os dados do par: %s\n", my_index, tipo, resposta);
 		
 		ns = send(tclients[my_index].cfd, resposta, strlen(resposta), 0);
 		if (ns < 0){
@@ -80,11 +84,13 @@ void *handle_client(void *args) {
 
 		char resposta_par[256];
     	bzero(resposta_par, 256);
-		sprintf(resposta_par, "%s %d", 
+		char tipo_par = (peer_index == 0) ? 'A' : 'B';
+		sprintf(resposta_par, "%s %d %c", 
             inet_ntoa(tclients[my_index].caddr.sin_addr),
-            ntohs(tclients[my_index].caddr.sin_port));
+            ntohs(tclients[my_index].caddr.sin_port),
+            tipo_par);
 
-    	printf("Enviando para cliente %d os dados do par: %s\n", peer_index, resposta_par);
+    	printf("Enviando para cliente %d (tipo %c) os dados do par: %s\n", peer_index, tipo_par, resposta_par);
 		
 		ns = send(tclients[peer_index].cfd, resposta_par, strlen(resposta_par), 0);
 		if (ns < 0){
