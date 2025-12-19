@@ -11,11 +11,6 @@
 
 #define MAX_MSG 256
 
-volatile int pacote_recebido = 0;  
-volatile int ack_recebido = 0;     
-int udp_sock_global;               
-struct sockaddr_in peer_addr_global; 
-
 void *listen_udp(void *arg) {
         int sock = *(int*)arg;
         char buffer[MAX_MSG];
@@ -27,23 +22,9 @@ void *listen_udp(void *arg) {
             int n = recvfrom(sock, buffer, MAX_MSG, 0, (struct sockaddr*)&sender, &len);
             if (n > 0) {
                 buffer[n] = '\0';
-                printf("\n>>> MENSAGEM UDP RECEBIDA DE (%s:%d): %s\n", 
+                // Se receber isso, O HOLE PUNCHING FUNCIONOU!
+                printf("\n\n>>> SUCESSO! MENSAGEM UDP RECEBIDA DE (%s:%d): %s\n", 
                        inet_ntoa(sender.sin_addr), ntohs(sender.sin_port), buffer);
-                
-                // Se recebeu PUNCHING, marca que recebeu e envia ACK de volta
-                if (strcmp(buffer, "PUNCHING") == 0) {
-                    pacote_recebido = 1;
-                    // Envia ACK para confirmar que recebeu
-                    char ack[] = "ACK";
-                    sendto(sock, ack, strlen(ack), 0, 
-                           (struct sockaddr*)&peer_addr_global, sizeof(peer_addr_global));
-                    printf(">>> Enviado ACK de confirma\u00e7\u00e3o!\n");
-                }
-                // Se recebeu ACK, o outro confirmou que recebeu nosso pacote
-                else if (strcmp(buffer, "ACK") == 0) {
-                    ack_recebido = 1;
-                    printf(">>> ACK recebido! O outro host confirmou recebimento.\n");
-                }
             }
         }
         return NULL;
@@ -83,11 +64,12 @@ int main(int argc, char **argv) {
 
     fd_set readfds;
     char msg[MAX_MSG], resp[MAX_MSG];
-    int max_fd = cfd;
+    int max_fd = cfd; 
+
     char peer_ip[32];
     int peer_tcp_port = 0;
     int tem_dados = 0;
-    char meu_tipo = ' '; 
+    char meu_tipo = ' ';
 
     while(1) {
         FD_ZERO(&readfds);
@@ -107,7 +89,6 @@ int main(int argc, char **argv) {
             bzero(msg, MAX_MSG);
             fgets(msg, MAX_MSG, stdin); 
 
-            // Envia para o servidor
             if (write(cfd, msg, strlen(msg)) == -1) {
                 perror("write()");
                 break;
@@ -160,9 +141,6 @@ int main(int argc, char **argv) {
     peer_addr.sin_family = AF_INET;
     peer_addr.sin_port = htons(peer_udp_port);
     peer_addr.sin_addr.s_addr = inet_addr(peer_ip);
-    
-    peer_addr_global = peer_addr;
-    udp_sock_global = udp_sock;
 
     pthread_t tid;
     pthread_create(&tid, NULL, listen_udp, &udp_sock);
@@ -175,14 +153,9 @@ int main(int argc, char **argv) {
                (struct sockaddr*)&peer_addr, sizeof(peer_addr));
         
         printf("Pacote UDP %d enviado para %s:%d\n", i+1, peer_ip, peer_udp_port);
-        
-        if (pacote_recebido && ack_recebido) {
-            printf("\n>>> HOLE PUNCHING COMPLETO! Ambos os lados confirmaram.\n");
-            break;
-        }
-        
-        sleep(1); // Espera 1 seg entre tentativas
+        sleep(1); 
     }
+
 
     printf("Fim do envio inicial. Aguardando respostas...\n");
     
